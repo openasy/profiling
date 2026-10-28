@@ -1,0 +1,41 @@
+# Profiling. It keeps the profiles Grafana Alloy's eBPF profiler and the Pyroscope SDKs push, and the pprof it reads from
+# the pull targets you add, in Pyroscope inside its one container, and shows them as flame graphs (ADR 0068).
+#
+#   openssl rand -hex 32 > openasy-kek   # Profiling's key: sign-in secrets and the passwords of pull targets (ADR 0021). Keep it with your backups
+#   docker compose up -d
+#   docker compose logs profiling | grep 'no owner yet'   # the one-time link that creates the owner account
+services:
+  profiling:
+    image: ghcr.io/openasy/profiling:0.1.0
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    ports:
+      - "127.0.0.1:8080:8080" # UI, API, pushes and Grafana's queries; put a TLS proxy in front to reach it from elsewhere
+    volumes:
+      - profiling-data:/data # SQLite (pull targets, captures, people) and Pyroscope's storage
+    secrets:
+      - openasy-kek # mounted at /run/secrets/openasy-kek
+    environment:
+      # The address people open Profiling at; with a TLS proxy in front, its https:// URL.
+      PROFILING_PUBLIC_URL: ${PROFILING_PUBLIC_URL:-http://localhost:8080}
+      # The install's OpenAsy products, for the product switcher.
+      OPENASY_PRODUCTS: ${OPENASY_PRODUCTS:-}
+      # For Grafana Alloy and the Pyroscope SDKs: it can push profiles and nothing else.
+      PROFILING_INGEST_TOKEN: ${PROFILING_INGEST_TOKEN:-}
+      # How long profiles are kept, and how much pushed profile data a second is taken:
+      # PROFILING_RETENTION_DAYS: "14"
+      # PROFILING_INGEST_MB_PER_SECOND: "8"
+      # Sign in with your identity provider (OIDC), see the README:
+      # OPENASY_OIDC_ISSUER: https://login.example.com
+      # OPENASY_OIDC_CLIENT_ID: profiling
+      # OPENASY_OIDC_CLIENT_SECRET: ${OPENASY_OIDC_CLIENT_SECRET}
+
+volumes:
+  profiling-data:
+
+secrets:
+  openasy-kek:
+    file: ./openasy-kek

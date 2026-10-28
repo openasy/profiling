@@ -1,0 +1,2401 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "OpenAsy Profiling API",
+    "version": "0.1.0",
+    "summary": "Which functions use the CPU and memory, all the time, in production: profiles kept in Pyroscope, read as flame graphs and compared.",
+    "description": "Every screen of Profiling uses this API, and so can your scripts (ADR 0014). Within `/api/v1` changes are additive only; anything removed is deprecated first (ADR 0024). Errors use Problem Details (RFC 9457).\n\nProfiles are pushed with `PROFILING_INGEST_TOKEN` or an API token with the editor role: Grafana Alloy's `pyroscope.write`, which its eBPF profiler `pyroscope.ebpf` sends to, posts to `/push.v1.PusherService/Push`, and the Pyroscope SDKs to `/ingest`. Profiling also reads pprof from the pull targets people add. Pyroscope's query API is answered under `/querier.v1.QuerierService/` as Pyroscope answers it, for Grafana's Pyroscope data source with an API token of the viewer role. Everything else takes the session of a signed-in person or an API token, and each operation names the role it needs (`x-openasy-role`: viewer, editor, admin; ADR 0003).\n\nSign-in, members and API tokens are under `/api/v1/auth`, provided by [@openasy/auth](https://github.com/openasy/auth#routes).",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "This Profiling"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Profiles",
+      "description": "Services, flame graphs, comparisons and totals over time."
+    },
+    {
+      "name": "Targets",
+      "description": "pprof addresses Profiling reads, and each capture."
+    },
+    {
+      "name": "Push",
+      "description": "Profiles sent in: Grafana Alloy and the Pyroscope SDKs."
+    },
+    {
+      "name": "Query API",
+      "description": "Pyroscope's own query API, for Grafana."
+    },
+    {
+      "name": "Product",
+      "description": "Version and overview of this Profiling."
+    }
+  ],
+  "paths": {
+    "/api/v1/services": {
+      "get": {
+        "operationId": "listServices",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Services and their profile types",
+        "description": "Needs the viewer role. Every service with profiles in the period, most useful type first, and every pull target's service.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the period; an hour before to by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the period; now by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/services/{name}/labels": {
+      "get": {
+        "operationId": "listServiceLabels",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "A service's labels and their values",
+        "description": "Needs the viewer role. Such as version, pod or node, to filter a flame graph and compare two values.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The service.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the period; an hour before to by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the period; now by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelValues"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/flamegraph": {
+      "get": {
+        "operationId": "getFlameGraph",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "A flame graph",
+        "description": "Needs the viewer role. The service's profiles of one type in the period, merged, as a tree of frames, with the functions that take most.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": true,
+            "description": "The service, as the services list names it (its service_name).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "The profile type, such as process_cpu:cpu:nanoseconds:cpu:nanoseconds, from the service's types.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the period; an hour before to by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the period; now by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "required": false,
+            "description": "name=value: only the profiles with this label, such as version=v2.14.1. Repeat it for more labels.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*="
+              }
+            }
+          },
+          {
+            "name": "maxNodes",
+            "in": "query",
+            "required": false,
+            "description": "At most this many frames; the smallest are merged into other. 2048 by default.",
+            "schema": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 16384
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlameGraph"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/compare": {
+      "get": {
+        "operationId": "compareProfiles",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Compare two periods",
+        "description": "Needs the viewer role. How each function's share of the whole moved from a baseline to a comparison: two periods, or two values of a label, such as two versions, in the same period. The baseline is the period just before, of the same length, unless baseFrom and baseTo are given.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": true,
+            "description": "The service, as the services list names it (its service_name).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "The profile type, such as process_cpu:cpu:nanoseconds:cpu:nanoseconds, from the service's types.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the period; an hour before to by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the period; now by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "baseFrom",
+            "in": "query",
+            "required": false,
+            "description": "Start of the baseline. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "baseTo",
+            "in": "query",
+            "required": false,
+            "description": "End of the baseline. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "required": false,
+            "description": "name=value: the comparison's profiles only. Repeat it for more labels.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*="
+              }
+            }
+          },
+          {
+            "name": "baseLabel",
+            "in": "query",
+            "required": false,
+            "description": "name=value: the baseline's profiles only. Repeat it for more labels.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*="
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/timeline": {
+      "get": {
+        "operationId": "getTimeline",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Totals over time, by service",
+        "description": "Needs the viewer role. About 60 points over the period, each the value of the type's stacks in that step, such as CPU nanoseconds.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "The profile type, such as process_cpu:cpu:nanoseconds:cpu:nanoseconds, from the service's types.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the period; an hour before to by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the period; now by default. RFC 3339, or milliseconds since 1970.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Only this service.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timeline"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/targets": {
+      "get": {
+        "operationId": "listTargets",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Pull targets",
+        "description": "Needs the viewer role. With each one's last capture.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      },
+      "post": {
+        "operationId": "createTarget",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Add a pull target",
+        "description": "Needs the admin role. It is read on its schedule from now on.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Added.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Target"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "admin"
+      }
+    },
+    "/api/v1/targets/{id}": {
+      "get": {
+        "operationId": "getTarget",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "A pull target",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The target's id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Target"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer",
+        "description": "Needs the viewer role."
+      },
+      "put": {
+        "operationId": "updateTarget",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Change a pull target",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The target's id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Target"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "admin",
+        "description": "Needs the admin role."
+      },
+      "delete": {
+        "operationId": "deleteTarget",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Delete a pull target",
+        "description": "Needs the admin role. It is not read from now on; its profiles are kept for the retention.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The target's id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "admin"
+      }
+    },
+    "/api/v1/targets/{id}/capture": {
+      "post": {
+        "operationId": "captureNow",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Capture a profile now",
+        "description": "Needs the editor role. Reads one type from the target now. It answers at once, as capturing; the capture says when it is stored, or why not.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The target's id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capture"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "editor"
+      }
+    },
+    "/api/v1/captures": {
+      "get": {
+        "operationId": "listCaptures",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "Captures",
+        "description": "Needs the viewer role. The profiles read from pull targets, newest first, kept for the retention.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Only this service's.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "100 by default.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/captures/{id}": {
+      "get": {
+        "operationId": "getCapture",
+        "tags": [
+          "Targets"
+        ],
+        "summary": "A capture",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The capture's id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capture"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer",
+        "description": "Needs the viewer role."
+      }
+    },
+    "/push.v1.PusherService/Push": {
+      "post": {
+        "operationId": "pushAlloy",
+        "tags": [
+          "Push"
+        ],
+        "summary": "Grafana Alloy",
+        "description": "Pyroscope's push API, which Alloy's `pyroscope.write` posts to with the address `https://profiling.example.com`: its eBPF profiler (`pyroscope.ebpf`), `pyroscope.java` and `pyroscope.scrape` all send through it. Connect over HTTP, protobuf or JSON. With `PROFILING_INGEST_TOKEN`, or an API token with the editor role.",
+        "security": [
+          {
+            "ingestToken": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/proto": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              },
+              "application/proto": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body could not be read, with why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "description": "Pyroscope refused the profile, with why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Above PROFILING_INGEST_MB_PER_SECOND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Pyroscope could not store it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/ingest": {
+      "post": {
+        "operationId": "pushIngest",
+        "tags": [
+          "Push"
+        ],
+        "summary": "Pyroscope SDKs",
+        "description": "Pyroscope's ingest API, as its SDKs and agents send to it: `?name=service{label=value}&format=pprof` (or jfr, folded and the other formats it reads), the profile in the body. With `PROFILING_INGEST_TOKEN`, or an API token with the editor role.",
+        "security": [
+          {
+            "ingestToken": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored."
+          },
+          "400": {
+            "description": "The body could not be read, with why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "description": "Pyroscope refused the profile, with why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Above PROFILING_INGEST_MB_PER_SECOND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Pyroscope could not store it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/querier.v1.QuerierService/{method}": {
+      "post": {
+        "operationId": "queryApi",
+        "tags": [
+          "Query API"
+        ],
+        "summary": "Pyroscope's query API",
+        "description": "Needs the viewer role. Passed to Pyroscope as it is, for Grafana's Pyroscope data source: ProfileTypes, LabelNames, LabelValues, Series, SelectMergeStacktraces, SelectMergeSpanProfile, SelectMergeProfile, SelectSeries, Diff and GetProfileStats. Its other services are not reachable.",
+        "parameters": [
+          {
+            "name": "method",
+            "in": "path",
+            "required": true,
+            "description": "One of the methods above.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            },
+            "application/proto": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pyroscope's answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              },
+              "application/proto": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request could not be read, with why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "description": "Neither JSON nor protobuf."
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/summary": {
+      "get": {
+        "operationId": "getSummary",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Overview",
+        "description": "Needs the viewer role. Storage, services and the pull targets' captures, for the first screen.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer"
+      }
+    },
+    "/api/v1/products": {
+      "get": {
+        "operationId": "listProducts",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Other products of this install",
+        "responses": {
+          "200": {
+            "description": "From OPENASY_PRODUCTS, for the product switcher.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          },
+          {
+            "adminToken": []
+          }
+        ],
+        "x-openasy-role": "viewer",
+        "description": "Needs the viewer role."
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "operationId": "getVersion",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Version",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The running version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "liveness",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Liveness",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The process is running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readiness",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Readiness",
+        "description": "Ready while the database and Pyroscope answer.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Ready to serve.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database or Pyroscope is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "tags": [
+          "Product"
+        ],
+        "summary": "Prometheus metrics",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Metrics in the Prometheus text format.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-openasy-session",
+        "description": "The browser session after signing in (`openasy-session` when Profiling runs on plain http://localhost). Requests that change something must come from the Profiling origin."
+      },
+      "apiToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An API token created under Settings → API tokens (`oa_profiling_...`): one role, always an expiry (ADR 0003). Grafana sends one as its data source's bearer token."
+      },
+      "adminToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Only when Profiling is started by its tests or a local script: one shared token with the admin role. A production install does not have it."
+      },
+      "ingestToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "`PROFILING_INGEST_TOKEN`: for Grafana Alloy and the Pyroscope SDKs. It can push profiles, nothing else."
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "An error, as RFC 9457 Problem Details.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid-token",
+              "invalid-json",
+              "invalid-body",
+              "conflict",
+              "not-found",
+              "not-configured",
+              "payload-too-large",
+              "storage-unavailable",
+              "internal-error",
+              "unauthenticated",
+              "invalid-credentials",
+              "mfa-required",
+              "mfa-setup-required",
+              "forbidden",
+              "cross-site",
+              "rate-limited"
+            ],
+            "description": "Stable; match on this."
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "Version": {
+        "type": "object",
+        "required": [
+          "product",
+          "version"
+        ],
+        "properties": {
+          "product": {
+            "const": "profiling"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ProductLink": {
+        "type": "object",
+        "required": [
+          "id",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The product, as OpenAsy names it.",
+            "examples": [
+              "traces"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The address people open it at.",
+            "examples": [
+              "https://traces.example.com"
+            ]
+          }
+        }
+      },
+      "ProductList": {
+        "type": "object",
+        "required": [
+          "products"
+        ],
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductLink"
+            }
+          }
+        }
+      },
+      "ProfileType": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "sampleType",
+          "unit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "As Pyroscope names it: name:sampleType:sampleUnit:periodType:periodUnit.",
+            "examples": [
+              "process_cpu:cpu:nanoseconds:cpu:nanoseconds"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "examples": [
+              "process_cpu",
+              "memory"
+            ]
+          },
+          "sampleType": {
+            "type": "string",
+            "examples": [
+              "cpu",
+              "alloc_space",
+              "inuse_space"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "description": "Of every value: nanoseconds, bytes or count.",
+            "examples": [
+              "nanoseconds"
+            ]
+          }
+        }
+      },
+      "ServiceInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "types",
+          "targetId"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Its service_name."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileType"
+            }
+          },
+          "targetId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pull target its profiles come from; null when they are pushed."
+          }
+        }
+      },
+      "ServiceList": {
+        "type": "object",
+        "required": [
+          "services"
+        ],
+        "properties": {
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceInfo"
+            }
+          }
+        }
+      },
+      "LabelValues": {
+        "type": "object",
+        "required": [
+          "labels"
+        ],
+        "properties": {
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Each label of the service's profiles in the period, with its values."
+          }
+        }
+      },
+      "Frame": {
+        "type": "object",
+        "required": [
+          "name",
+          "total",
+          "self",
+          "children"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The function; total for the root."
+          },
+          "total": {
+            "type": "number",
+            "description": "Value of the stacks through it, in the type's unit."
+          },
+          "self": {
+            "type": "number",
+            "description": "Value of the stacks that end in it."
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Frame"
+            }
+          }
+        }
+      },
+      "FunctionStat": {
+        "type": "object",
+        "required": [
+          "name",
+          "self",
+          "total"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "self": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number",
+            "description": "Counted once when it calls itself."
+          }
+        }
+      },
+      "FlameGraph": {
+        "type": "object",
+        "required": [
+          "type",
+          "from",
+          "to",
+          "total",
+          "root",
+          "functions"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ProfileType"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "total": {
+            "type": "number",
+            "description": "Value of every stack in the period, in the type's unit."
+          },
+          "root": {
+            "$ref": "#/components/schemas/Frame"
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FunctionStat"
+            },
+            "description": "The 100 functions with the most self value."
+          }
+        }
+      },
+      "ComparedPeriod": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "labels",
+          "total"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "number"
+          }
+        }
+      },
+      "FunctionChange": {
+        "type": "object",
+        "required": [
+          "name",
+          "baseSelf",
+          "headSelf",
+          "baseTotal",
+          "headTotal",
+          "change"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "baseSelf": {
+            "type": "number",
+            "description": "Share of the baseline's value spent in the function itself, in percent."
+          },
+          "headSelf": {
+            "type": "number",
+            "description": "The same, in the comparison."
+          },
+          "baseTotal": {
+            "type": "number"
+          },
+          "headTotal": {
+            "type": "number"
+          },
+          "change": {
+            "type": "number",
+            "description": "headSelf - baseSelf, in percentage points; above 0 it takes more than it did."
+          }
+        }
+      },
+      "Comparison": {
+        "type": "object",
+        "required": [
+          "type",
+          "base",
+          "head",
+          "functions"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ProfileType"
+          },
+          "base": {
+            "$ref": "#/components/schemas/ComparedPeriod"
+          },
+          "head": {
+            "$ref": "#/components/schemas/ComparedPeriod"
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FunctionChange"
+            },
+            "description": "At most 200, the ones that moved most first."
+          }
+        }
+      },
+      "Timeline": {
+        "type": "object",
+        "required": [
+          "type",
+          "stepSeconds",
+          "series"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/ProfileType"
+          },
+          "stepSeconds": {
+            "type": "integer"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "service",
+                "points"
+              ],
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "description": "[milliseconds since 1970, value]."
+                }
+              }
+            }
+          }
+        }
+      },
+      "Capture": {
+        "type": "object",
+        "required": [
+          "id",
+          "targetId",
+          "service",
+          "type",
+          "trigger",
+          "status",
+          "error",
+          "bytes",
+          "startedAt",
+          "finishedAt",
+          "createdBy"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "targetId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "heap",
+              "goroutine",
+              "mutex",
+              "block"
+            ]
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "manual"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "capturing",
+              "stored",
+              "failed"
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was not stored."
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size of the profile as the target sent it."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdBy": {
+            "type": "string"
+          }
+        }
+      },
+      "CaptureList": {
+        "type": "object",
+        "required": [
+          "captures"
+        ],
+        "properties": {
+          "captures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capture"
+            }
+          }
+        }
+      },
+      "Target": {
+        "type": "object",
+        "required": [
+          "id",
+          "service",
+          "url",
+          "types",
+          "intervalSeconds",
+          "cpuSeconds",
+          "labels",
+          "auth",
+          "username",
+          "hasSecret",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string",
+            "description": "The service_name its profiles are stored under."
+          },
+          "url": {
+            "type": "string",
+            "description": "The pprof address; each type is read at a path under it."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "cpu",
+                "heap",
+                "goroutine",
+                "mutex",
+                "block"
+              ]
+            }
+          },
+          "intervalSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How often it is read; null reads it only on demand."
+          },
+          "cpuSeconds": {
+            "type": "integer"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "auth": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bearer",
+              "basic"
+            ]
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hasSecret": {
+            "type": "boolean",
+            "description": "Whether a password or bearer token is kept. It is never returned (ADR 0021)."
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TargetWithCapture": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Target"
+          },
+          {
+            "type": "object",
+            "required": [
+              "lastCapture"
+            ],
+            "properties": {
+              "lastCapture": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Capture"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Its last capture that finished."
+              }
+            }
+          }
+        ]
+      },
+      "TargetList": {
+        "type": "object",
+        "required": [
+          "targets"
+        ],
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetWithCapture"
+            }
+          }
+        }
+      },
+      "NewTarget": {
+        "type": "object",
+        "required": [
+          "service",
+          "url"
+        ],
+        "properties": {
+          "service": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{0,99}$"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "http:// or https://, such as http://10.0.0.5:6060/debug/pprof; one without a path reads /debug/pprof."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "cpu",
+                "heap",
+                "goroutine",
+                "mutex",
+                "block"
+              ]
+            },
+            "minItems": 1,
+            "default": [
+              "cpu",
+              "heap"
+            ],
+            "description": "cpu reads /profile?seconds=cpuSeconds; the others read /heap, /goroutine, /mutex and /block."
+          },
+          "intervalSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 15,
+                "maximum": 86400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 60
+          },
+          "cpuSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 10,
+            "description": "Shorter than intervalSeconds."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_.:/@+-]{1,200}$"
+            },
+            "description": "At most 10, such as version or env; not service_name."
+          },
+          "auth": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bearer",
+              "basic"
+            ],
+            "default": "none"
+          },
+          "username": {
+            "type": "string",
+            "description": "For basic."
+          },
+          "secret": {
+            "type": "string",
+            "description": "The bearer token or password, sealed with the install's key. Leave it out to keep the one kept."
+          }
+        }
+      },
+      "CaptureRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "heap",
+              "goroutine",
+              "mutex",
+              "block"
+            ],
+            "description": "One of the target's types; its first by default."
+          }
+        }
+      },
+      "Summary": {
+        "type": "object",
+        "required": [
+          "storage",
+          "services",
+          "targets",
+          "captures",
+          "failing"
+        ],
+        "properties": {
+          "storage": {
+            "type": "object",
+            "required": [
+              "running",
+              "storageBytes",
+              "freeBytes",
+              "retentionDays"
+            ],
+            "properties": {
+              "running": {
+                "type": "boolean",
+                "description": "Whether Pyroscope answers."
+              },
+              "storageBytes": {
+                "type": "integer"
+              },
+              "freeBytes": {
+                "type": "integer"
+              },
+              "retentionDays": {
+                "type": "integer"
+              }
+            }
+          },
+          "services": {
+            "type": "integer",
+            "description": "Services with profiles in the last hour."
+          },
+          "targets": {
+            "type": "integer"
+          },
+          "captures": {
+            "type": "object",
+            "required": [
+              "stored",
+              "failed"
+            ],
+            "properties": {
+              "stored": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "description": "Captures of the last hour."
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "targetId",
+                "service",
+                "type",
+                "error",
+                "at"
+              ],
+              "properties": {
+                "targetId": {
+                  "type": "string"
+                },
+                "service": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "cpu",
+                    "heap",
+                    "goroutine",
+                    "mutex",
+                    "block"
+                  ]
+                },
+                "error": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            },
+            "description": "Targets whose last capture failed, at most 20."
+          }
+        }
+      },
+      "ConnectAnswer": {
+        "description": "Pyroscope's own answer, as its Connect API writes it: JSON or protobuf, as the request asked."
+      }
+    }
+  }
+}
