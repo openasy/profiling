@@ -196,7 +196,7 @@ export function createService({ pyroscope, targets, captures, dataPath, retentio
     async timeline(type: ProfileType, p: Period, service: string | null) {
       // About 60 points whatever the range, and never less than 15 seconds apart.
       const step = Math.max(15, Math.round((p.to - p.from) / 1000 / 60));
-      const series = await pyroscope.timeline(type.id, service ? selector(service) : "{}", p.from, p.to, step, ["service_name"]);
+      const series = await pyroscope.timeline(type.id, service ? selector(service) : '{service_name=~".+"}', p.from, p.to, step, ["service_name"]);
       return {
         type,
         stepSeconds: step,

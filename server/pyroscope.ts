@@ -127,7 +127,8 @@ export function createPyroscopeClient(base: string, opts: { timeoutMs?: number }
     /** Every series in the range, as its service and profile type. */
     async series(start: number, end: number): Promise<Array<{ service: string; type: string }>> {
       const r = await connect<{ labelsSet?: Array<{ labels?: Label[] }> }>("/querier.v1.QuerierService/Series", {
-        matchers: [],
+        // Only series with a service: Pyroscope warns of every other one it is asked for.
+        matchers: ['{service_name=~".+"}'],
         labelNames: ["service_name", "__profile_type__"],
         start,
         end,
@@ -267,7 +268,8 @@ export function startPyroscope(o: PyroscopeOptions) {
     const relay = (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const l = lineLevel(line);
-        if (!l || l.msg.startsWith("http request failed") || l.msg.startsWith("maxprocs:")) continue;
+        // Its info lines, mostly from Raft and from its parts finding each other at start, are left out.
+        if (!l || l.level === "info" || l.msg.startsWith("http request failed")) continue;
         log(l.level, "pyroscope", { detail: l.msg.slice(0, 2000) });
       }
     };

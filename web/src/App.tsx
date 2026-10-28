@@ -229,7 +229,7 @@ function FlameGraphView({ root, zoom, unit, onZoom }: { root: Frame; zoom: Frame
   return (
     <div className="flex flex-col gap-2">
       <p aria-live="polite" data-testid="frame-info" className="profiling-frame-info m-0 text-xs">
-        <span className="profiling-wrap font-mono font-semibold">{shown.name}</span>
+        <span className="profiling-wrap font-mono font-semibold">{shown === root ? t("flame.all") : shown.name}</span>
         <span className="text-fg-muted">
           {t("flame.self")} <span className="font-mono text-fg">{formatShare(percent(shown.self, root.total))}</span>
         </span>

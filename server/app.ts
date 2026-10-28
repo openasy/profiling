@@ -95,7 +95,7 @@ const QUERIER_READ = [
 ];
 
 /** The request headers passed on with a push or query: how the body is written, and Connect's own. */
-const FORWARDED = ["content-type", "content-encoding", "connect-protocol-version", "connect-timeout-ms", "accept-encoding"];
+const FORWARDED = ["content-type", "content-encoding", "connect-protocol-version", "connect-timeout-ms"];
 
 function send(res: ServerResponse, status: number, body: string | Buffer, type = "application/json", headers: Record<string, string> = {}) {
   res.writeHead(status, { ...SECURITY_HEADERS, ...headers, "content-type": type, "content-length": Buffer.byteLength(body) });
