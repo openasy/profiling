@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.12.0-trixie-slim AS build
+FROM node:26.13.0-trixie-slim AS build
 ARG TARGETARCH
 WORKDIR /app
 COPY package.json package-lock.json ./
