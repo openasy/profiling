@@ -2,6 +2,7 @@
 // rows and the colour of each frame.
 import { formatBytes, formatNumber } from "@openasy/ui";
 import type { Frame, ProfileType } from "./api.ts";
+import { fixed } from "./i18n.ts";
 
 export const RANGES: Record<string, number> = { "15m": 900, "1h": 3600, "6h": 21_600, "24h": 86_400, "7d": 604_800, "30d": 2_592_000 };
 
@@ -37,7 +38,7 @@ export function formatValue(unit: string, v: number): string {
 }
 
 export const percent = (v: number, whole: number) => (whole > 0 ? (v / whole) * 100 : 0);
-export const formatShare = (p: number) => `${p >= 10 || p === 0 ? p.toFixed(1) : p.toPrecision(2)}%`;
+export const formatShare = (p: number) => `${p >= 10 || p === 0 ? fixed(p, 1) : p.toPrecision(2)}%`;
 
 /** Whether a type is CPU time, which reads as cores used over the period. */
 export const isCpuTime = (t: ProfileType) => t.unit === "nanoseconds" && (t.sampleType === "cpu" || t.name === "process_cpu");

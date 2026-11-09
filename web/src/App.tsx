@@ -72,7 +72,7 @@ import {
   type TargetAuth,
   type Timeline,
 } from "./api.ts";
-import { useT, type T } from "./i18n.ts";
+import { useT, type T, setViewerLocale, viewerLocale, fixed } from "./i18n.ts";
 import { baselineOf, colorOf, cores, formatShare, formatValue, isCpuTime, layout, packageOf, pathTo, percent, periodOf, type Baseline } from "./profile.ts";
 
 const PAGES = ["profiles", "flame-graph", "compare", "targets", "setup", "account", "members", "signin", "tokens"] as const;
@@ -172,7 +172,7 @@ function useTick(every: number) {
   return [tick, () => setTick((n) => n + 1)] as const;
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const when = (iso: string) => new Date(iso).toLocaleString(viewerLocale(), { dateStyle: "medium", timeStyle: "short" });
 const qs = (values: Record<string, string | number | undefined | string[]>) => {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(values)) {
@@ -448,7 +448,7 @@ function FlameGraphPage({ call }: { call: Call }) {
             <KpiGrid>
               <KpiCard
                 label={isCpuTime(fg.type) ? t("flamePage.cores") : t("flamePage.total")}
-                value={isCpuTime(fg.type) ? cores(fg.total, ms).toFixed(2) : formatValue(fg.type.unit, fg.total)}
+                value={isCpuTime(fg.type) ? fixed(cores(fg.total, ms), 2) : formatValue(fg.type.unit, fg.total)}
                 unit={isCpuTime(fg.type) ? t("flamePage.coresUnit") : typeName(t, fg.type)}
                 delta={isCpuTime(fg.type) ? { label: t("flamePage.cpuTime", { time: formatValue(fg.type.unit, fg.total) }) } : undefined}
               />
@@ -574,7 +574,7 @@ function ComparePage({ call }: { call: Call }) {
   const growth = cmp && cmp.base.total > 0 ? ((rate(cmp.head) - rate(cmp.base)) / rate(cmp.base)) * 100 : null;
   const baseName = mode === "label" ? `${name} ${bv}` : t(`comparePage.baseline.${baseline}`);
   const headName = mode === "label" ? `${name} ${hv}` : t("comparePage.thisPeriod");
-  const pts = (d: number) => `${d > 0 ? "+" : ""}${d.toFixed(1)}`;
+  const pts = (d: number) => `${d > 0 ? "+" : ""}${fixed(d, 1)}`;
 
   const columns: Column<FunctionChange>[] = [
     {
@@ -732,7 +732,7 @@ function ComparePage({ call }: { call: Call }) {
           <KpiGrid>
             <KpiCard
               label={mode === "periods" ? t("comparePage.perSecond") : t("comparePage.totals")}
-              value={mode === "periods" && growth !== null ? `${growth > 0 ? "+" : ""}${growth.toFixed(0)}` : formatValue(cmp.type.unit, cmp.head.total)}
+              value={mode === "periods" && growth !== null ? `${growth > 0 ? "+" : ""}${fixed(growth, 0)}` : formatValue(cmp.type.unit, cmp.head.total)}
               unit={mode === "periods" ? "%" : typeName(t, cmp.type)}
               tone={mode === "periods" && growth !== null && growth > 10 ? "danger" : undefined}
               delta={{ label: `${baseName} ${formatValue(cmp.type.unit, cmp.base.total)} → ${headName} ${formatValue(cmp.type.unit, cmp.head.total)}` }}
@@ -970,7 +970,7 @@ function ProfilesPage({ call, summary, reload }: { call: Call; summary: Summary;
     const steps = [...new Set(timeline.series.flatMap((s) => s.points.map((p) => p[0])))].sort((a, b) => a - b);
     const per = timeline.stepSeconds * 1e9;
     return {
-      labels: steps.map((s) => new Date(s).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })),
+      labels: steps.map((s) => new Date(s).toLocaleTimeString(viewerLocale(), { hour: "2-digit", minute: "2-digit" })),
       series: timeline.series.slice(0, 20).map((s, i) => {
         const at = new Map(s.points);
         return { id: `s${i}`, name: s.service, data: steps.map((x) => (at.get(x) ?? 0) / per) };
@@ -1061,7 +1061,7 @@ function ProfilesPage({ call, summary, reload }: { call: Call; summary: Summary;
             area
             height={180}
             xTicks={4}
-            format={(v) => t("profilesPage.coresValue", { value: v.toFixed(2) })}
+            format={(v) => t("profilesPage.coresValue", { value: fixed(v, 2) })}
           />
         </Panel>
       )}
@@ -1622,6 +1622,7 @@ export function App() {
   const installBrand = useInstallBrand();
   const [theme] = useThemePreference();
   const [locale] = useLocalePreference();
+  setViewerLocale(locale);
   return (
     // The install's brand from config/brand.env (ADR 0053); OpenAsy's own look where it sets none.
     <BrandProvider theme={theme} locale={locale} brand={{ name: "OpenAsy", organization: undefined, ...installBrand }} className="min-h-screen">

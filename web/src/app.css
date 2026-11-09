@@ -51,7 +51,7 @@
   font-family: var(--oa-font-mono);
   font-size: 0.6875rem;
   line-height: 1.5rem;
-  text-align: left;
+  text-align: start;
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -80,7 +80,7 @@
 }
 
 .profiling-crumbs-end {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* A package's colour, before a function's name. */
