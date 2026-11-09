@@ -1,6 +1,9 @@
 // Writes openapi.json (ADR 0014, 0024). Run `node scripts/openapi.ts` after changing the API; a test fails when the
 // file is out of date. Sign-in routes come from @openasy/auth and are merged in when the description is served.
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+
+// The release's version, so a release changes package.json only.
+const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 
 type S = Record<string, unknown>;
 const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
@@ -244,7 +247,7 @@ const spec = {
   openapi: "3.1.1",
   info: {
     title: "OpenAsy Profiling API",
-    version: "0.1.0",
+    version,
     summary: "Which functions use the CPU and memory, all the time, in production: profiles kept in Pyroscope, read as flame graphs and compared.",
     description:
       "Every screen of Profiling uses this API, and so can your scripts (ADR 0014). Within `/api/v1` changes are additive only; anything removed is deprecated first (ADR 0024). Errors use Problem Details (RFC 9457).\n\nProfiles are pushed with `PROFILING_INGEST_TOKEN` or an API token with the editor role: Grafana Alloy's `pyroscope.write`, which its eBPF profiler `pyroscope.ebpf` sends to, posts to `/push.v1.PusherService/Push`, and the Pyroscope SDKs to `/ingest`. Profiling also reads pprof from the pull targets people add. Pyroscope's query API is answered under `/querier.v1.QuerierService/` as Pyroscope answers it, for Grafana's Pyroscope data source with an API token of the viewer role. Everything else takes the session of a signed-in person or an API token, and each operation names the role it needs (`x-openasy-role`: viewer, editor, admin; ADR 0003).\n\nSign-in, members and API tokens are under `/api/v1/auth`, provided by [@openasy/auth](https://github.com/openasy/auth#routes).",
