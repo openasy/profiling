@@ -1,6 +1,6 @@
 {
   "name": "@openasy/profiling",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "OpenAsy Profiling: which functions use the CPU and memory, all the time, in production, kept in Pyroscope as flame graphs per service and compared between two periods.",
   "license": "AGPL-3.0-only",
